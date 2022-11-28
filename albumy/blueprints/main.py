@@ -148,7 +148,21 @@ def show_photo(photo_id):
     description_form = DescriptionForm()
     tag_form = TagForm()
 
-    description_form.description.data = photo.description
+    #Add alternative text
+    if len(description_form.description.data) == 0:
+        subscription_key = os.environ['KEY']
+        endpoint = os.environ['ENDPOINT']
+        computervision_client = ComputerVisionClient(endpoint, CognitiveServicesCredentials(subscription_key))
+    #Call API
+        description_results = computervision_client.describe_image('/photo/<int:photo_id>')
+        if len(description_results.captions) == 0:
+            alt_text = "No description detected."
+        else:
+            for caption in description_results.captions:
+                alt_text = "'{}' with confidence {:.2f}%".format(caption.text, caption.confidence * 100)
+        alt_text = photo.description
+    else:
+        description_form.description.data = photo.description
     return render_template('main/photo.html', photo=photo, comment_form=comment_form,
                            description_form=description_form, tag_form=tag_form,
                            pagination=pagination, comments=comments)
