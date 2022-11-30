@@ -6,12 +6,15 @@
     :license: MIT, see LICENSE for more details.
 """
 import os
-
+from dotenv import load_dotenv
 from flask import render_template, flash, redirect, url_for, current_app, \
     send_from_directory, request, abort, Blueprint
 from flask_login import login_required, current_user
 from sqlalchemy.sql.expression import func
-
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from azure.cognitiveservices.vision.computervision.models import OperationStatusCodes
+from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
+from msrest.authentication import CognitiveServicesCredentials
 from albumy.decorators import confirm_required, permission_required
 from albumy.extensions import db
 from albumy.forms.main import DescriptionForm, TagForm, CommentForm
@@ -122,7 +125,8 @@ def upload():
     if request.method == 'POST' and 'file' in request.files:
         f = request.files.get('file')
         filename = rename_image(f.filename)
-        f.save(os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename))
+        file_path = os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename)
+        f.save(file_path)
         filename_s = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['small'])
         filename_m = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['medium'])
         photo = Photo(
@@ -131,6 +135,26 @@ def upload():
             filename_m=filename_m,
             author=current_user._get_current_object()
         )
+        des_temp = "hello"
+
+        print(file_path)
+
+        subscription_key = os.getenv('KEY')
+        endpoint = os.getenv('ENDPOINT')
+        computervision_client = ComputerVisionClient(endpoint, CognitiveServicesCredentials(subscription_key))
+        local_image = open(file_path, "rb")
+
+# Call API
+        description_results = computervision_client.describe_image_in_stream(local_image)
+        # print(description_results)
+        # description_results = computervision_client.describe_image(file_path)
+        if len(description_results.captions) != 0:
+            des_temp = description_results.captions[0].text
+                # alt_text = "'{}' with confidence {:.2f}%".format(caption.text, caption.confidence * 100)
+                # print(alt_text)
+
+                
+        photo.description = des_temp
         db.session.add(photo)
         db.session.commit()
     return render_template('main/upload.html')
@@ -148,21 +172,7 @@ def show_photo(photo_id):
     description_form = DescriptionForm()
     tag_form = TagForm()
 
-    #Add alternative text
-    if len(description_form.description.data) == 0:
-        subscription_key = os.environ['KEY']
-        endpoint = os.environ['ENDPOINT']
-        computervision_client = ComputerVisionClient(endpoint, CognitiveServicesCredentials(subscription_key))
-    #Call API
-        description_results = computervision_client.describe_image('/photo/<int:photo_id>')
-        if len(description_results.captions) == 0:
-            alt_text = "No description detected."
-        else:
-            for caption in description_results.captions:
-                alt_text = "'{}' with confidence {:.2f}%".format(caption.text, caption.confidence * 100)
-        alt_text = photo.description
-    else:
-        description_form.description.data = photo.description
+    description_form.description.data = photo.description
     return render_template('main/photo.html', photo=photo, comment_form=comment_form,
                            description_form=description_form, tag_form=tag_form,
                            pagination=pagination, comments=comments)
